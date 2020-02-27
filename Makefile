@@ -1,10 +1,11 @@
-GPU=0
-CUDNN=0
+GPU=1
+CUDNN=1
 CUDNN_HALF=0
-OPENCV=0
-AVX=0
-OPENMP=0
-LIBSO=0
+OPENCV=1
+AVX=1
+OPENMP=1
+LIBSO=1
+LIBA=1
 ZED_CAMERA=0 # ZED SDK 3.0 and above
 ZED_CAMERA_v2_8=0 # ZED SDK 2.X
 
@@ -54,10 +55,14 @@ LIBNAMESO=libdarknet.so
 APPNAMESO=uselib
 endif
 
+ifeq ($(LIBA), 1)
+ALIB=libdarknet.a
+endif
+
 ifeq ($(USE_CPP), 1)
 CC=g++
 else
-CC=gcc
+CC=gcc --std=c99
 endif
 
 CPP=g++ -std=c++11
@@ -65,7 +70,7 @@ NVCC=nvcc
 OPTS=-Ofast
 LDFLAGS= -lm -pthread
 COMMON= -Iinclude/ -I3rdparty/stb/include
-CFLAGS=-Wall -Wfatal-errors -Wno-unused-result -Wno-unknown-pragmas -fPIC
+CFLAGS=-Wall -Wfatal-errors -Wno-unused-result -Wno-unknown-pragmas -fPIC -D_BSD_SOURCE
 
 ifeq ($(DEBUG), 1)
 #OPTS= -O0 -g
@@ -143,7 +148,7 @@ endif
 OBJS = $(addprefix $(OBJDIR), $(OBJ))
 DEPS = $(wildcard src/*.h) Makefile include/darknet.h
 
-all: $(OBJDIR) backup results setchmod $(EXEC) $(LIBNAMESO) $(APPNAMESO)
+all: $(OBJDIR) backup results setchmod $(EXEC) $(LIBNAMESO) $(APPNAMESO) $(ALIB)
 
 ifeq ($(LIBSO), 1)
 CFLAGS+= -fPIC
@@ -157,6 +162,9 @@ endif
 
 $(EXEC): $(OBJS)
 	$(CPP) -std=c++11 $(COMMON) $(CFLAGS) $^ -o $@ $(LDFLAGS)
+
+$(ALIB): $(OBJS)
+	$(AR) $(ARFLAGS) $@ $^
 
 $(OBJDIR)%.o: %.c $(DEPS)
 	$(CC) $(COMMON) $(CFLAGS) -c $< -o $@
