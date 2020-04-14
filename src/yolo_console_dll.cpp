@@ -13,395 +13,60 @@
 #include <condition_variable>
 #include <fstream>
 
+#include "argagg.hpp"
+#include "pipeline.hpp"
 #include "shared_queue.hpp"
-#include "yolo_v2_class.hpp" // imported functions from DLL
+#include "yolo_v2_class.hpp"
 
-#ifdef OPENCV
-std::vector<bbox_t> get_3d_coordinates(std::vector<bbox_t> bbox_vect, cv::Mat xyzrgba)
+int main(int argc, const char *argv[])
 {
-	return bbox_vect;
-}
+	argagg::parser argparser {{
+		{ "names_file", {"-n", "--names-file"},
+			"path to file with class labels (default 'data/coco.names')", 1},
+		{ "cfg_file", {"-c", "--cfg-file"},
+			"path to darknet config file (default 'cfg/yolov3.cfg')", 1},
+		{ "weights_file", {"-w", "--weights-file"},
+			"path to weights file (default 'yolov3.weights')", 1},
+		{ "thresh", {"-t", "--thresh"},
+			"threshold (default 0.2)", 1},
+		{ "show_stream", {"-s", "--show-stream"},
+			"show stream", 0},
+		{ "write_to_video", {"-v", "--write-to-video"},
+			"output video", 0},
+		{ "help", {"-h", "--help"},
+			"shows this help message", 0},
+	}};
 
-#include <opencv2/opencv.hpp> // C++
-#include <opencv2/core/version.hpp>
-#ifndef CV_VERSION_EPOCH // OpenCV 3.x and 4.x
-#include <opencv2/videoio/videoio.hpp>
-#define OPENCV_VERSION CVAUX_STR(CV_VERSION_MAJOR) \
-"" CVAUX_STR(CV_VERSION_MINOR) "" CVAUX_STR(CV_VERSION_REVISION)
-#ifndef USE_CMAKE_LIBS
-#pragma comment(lib, "opencv_world" OPENCV_VERSION ".lib")
-#endif // USE_CMAKE_LIBS
-#else // OpenCV 2.x
-#define OPENCV_VERSION CVAUX_STR(CV_VERSION_EPOCH) \
-"" CVAUX_STR(CV_VERSION_MAJOR) "" CVAUX_STR(CV_VERSION_MINOR)
-#ifndef USE_CMAKE_LIBS
-#pragma comment(lib, "opencv_core" OPENCV_VERSION ".lib")
-#pragma comment(lib, "opencv_imgproc" OPENCV_VERSION ".lib")
-#pragma comment(lib, "opencv_highgui" OPENCV_VERSION ".lib")
-#pragma comment(lib, "opencv_video" OPENCV_VERSION ".lib")
-#endif // USE_CMAKE_LIBS
-#endif // CV_VERSION_EPOCH
-
-void draw_boxes(cv::Mat mat_img, std::vector<bbox_t> result_vec, std::vector<std::string> obj_names,
-		int current_det_fps = -1, int current_cap_fps = -1)
-{
-	// int const colors[6][3] = { { 1, 0, 1 }, { 0, 0, 1 }, { 0, 1, 1 }, { 0, 1, 0 }, { 1, 1, 0 }, { 1, 0, 0 } };
-
-	for (auto &i : result_vec) {
-		cv::Scalar color = obj_id_to_color(i.obj_id);
-		cv::rectangle(mat_img, cv::Rect(i.x, i.y, i.w, i.h), color, 2);
-		if (obj_names.size() > i.obj_id) {
-			std::string obj_name = obj_names[i.obj_id];
-			if (i.track_id > 0)
-				obj_name += " - " + std::to_string(i.track_id);
-			cv::Size const text_size = getTextSize(obj_name, cv::FONT_HERSHEY_COMPLEX_SMALL, 1.2, 2, 0);
-			int max_width = ((unsigned int)text_size.width > i.w + 2) ? text_size.width : (i.w + 2);
-			max_width = std::max(max_width, (int)i.w + 2);
-			//max_width = std::max(max_width, 283);
-			std::string coords_3d;
-			if (!std::isnan(i.z_3d)) {
-				std::stringstream ss;
-				ss << std::fixed << std::setprecision(2) << "x:" << i.x_3d << "m y:" << i.y_3d << "m z:" << i.z_3d << "m ";
-				coords_3d = ss.str();
-				cv::Size const text_size_3d = getTextSize(ss.str(), cv::FONT_HERSHEY_COMPLEX_SMALL, 0.8, 1, 0);
-				int const max_width_3d = ((unsigned int)text_size_3d.width > i.w + 2) ? text_size_3d.width : (i.w + 2);
-				if (max_width_3d > max_width)
-					max_width = max_width_3d;
-			}
-
-			cv::rectangle(mat_img, cv::Point2f(std::max((int)i.x - 1, 0), std::max((int)i.y - 35, 0)),
-				      cv::Point2f(std::min((int)i.x + max_width, mat_img.cols - 1), std::min((int)i.y, mat_img.rows - 1)),
-				      color, CV_FILLED, 8, 0);
-			putText(mat_img, obj_name, cv::Point2f(i.x, i.y - 16), cv::FONT_HERSHEY_COMPLEX_SMALL, 1.2, cv::Scalar(0, 0, 0), 2);
-			if (!coords_3d.empty())
-				putText(mat_img, coords_3d, cv::Point2f(i.x, i.y - 1), cv::FONT_HERSHEY_COMPLEX_SMALL, 0.8, cv::Scalar(0, 0, 0), 1);
-		}
-	}
-	if (current_det_fps >= 0 && current_cap_fps >= 0) {
-		std::string fps_str = "FPS detection: " + std::to_string(current_det_fps) + "   FPS capture: " + std::to_string(current_cap_fps);
-		putText(mat_img, fps_str, cv::Point2f(10, 20), cv::FONT_HERSHEY_COMPLEX_SMALL, 1.2, cv::Scalar(50, 255, 0), 2);
-	}
-}
-#endif // OPENCV
-
-void show_console_result(std::vector<bbox_t> const result_vec, std::vector<std::string> const obj_names, int frame_id = -1)
-{
-	if (frame_id >= 0)
-		std::cout << " Frame: " << frame_id << std::endl;
-	for (auto &i : result_vec) {
-		if (obj_names.size() > i.obj_id)
-			std::cout << obj_names[i.obj_id] << " - ";
-		std::cout << "obj_id = " << i.obj_id << ",  x = " << i.x << ", y = " << i.y
-			  << ", w = " << i.w << ", h = " << i.h
-			  << std::setprecision(3) << ", prob = " << i.prob << std::endl;
-	}
-}
-
-std::vector<std::string> objects_names_from_file(std::string const filename)
-{
-	std::ifstream file(filename);
-	std::vector<std::string> file_lines;
-	if (!file.is_open())
-		return file_lines;
-	for (std::string line; getline(file, line);)
-		file_lines.push_back(line);
-	std::cout << "object names loaded \n";
-	return file_lines;
-}
-
-
-struct detection_data_t {
-	detection_data_t()
-		: new_detection(false) {}
-
-	cv::Mat cap_frame;
-	std::shared_ptr<image_t> det_image;
-	std::vector<bbox_t> result_vec;
-	cv::Mat draw_frame;
-	bool new_detection;
-	uint64_t frame_id;
-	std::chrono::steady_clock::time_point time_captured;
-};
-
-bool stop_loop = false;
-bool display_done = false;
-std::thread t_cap, t_prepare, t_detect, t_draw, t_write, t_monitor;
-bool const use_kalman_filter = false; // true - for stationary camera
-SharedQueue<detection_data_t> q_prepare, q_detect, q_draw, q_write, q_show;
-std::atomic<int> fps_cap_counter(0), fps_det_counter(0);
-std::atomic<int> current_fps_cap(0), current_fps_det(0);
-
-cv::Size frame_size;
-float thresh;
-track_kalman_t track_kalman;
-
-cv::VideoCapture cap;
-cv::VideoWriter output_video;
-
-uint64_t final_frame_id = UINT_MAX;
-
-void capture_thread()
-{
-	uint64_t frame_id = 0;
-	do {
-		detection_data_t detection_data = detection_data_t();
-		cap >> detection_data.cap_frame;
-		detection_data.time_captured = std::chrono::steady_clock::now();
-		fps_cap_counter++;
-		detection_data.frame_id = frame_id++;
-
-		if (detection_data.cap_frame.empty() || stop_loop) {
-			std::cout << " exit_flag: detection_data.cap_frame.size = " << detection_data.cap_frame.size() << std::endl;
-			final_frame_id = frame_id-2;
-			stop_loop = true;
-			detection_data.cap_frame = cv::Mat(frame_size, CV_8UC3);
-			break;
-		}
-
-		q_draw.push_back(detection_data);
-
-		q_prepare.push_back(detection_data);
-	} while (!stop_loop);
-
-	std::cout << " t_cap exit \n";
-}
-
-void prepare_thread(Detector &detector)
-{
-	detection_data_t detection_data;
-	std::shared_ptr<image_t> det_image;
-	do {
-		detection_data = q_prepare.front();
-		q_prepare.pop_front();
-
-		det_image = detector.mat_to_image_resize(detection_data.cap_frame);
-		detection_data.det_image = det_image;
-		q_detect.push_back(detection_data);
-	} while (!stop_loop || detection_data.frame_id < final_frame_id);
-	std::cout << " t_prepare exit \n";
-}
-
-void detect_thread(Detector &detector)
-{
-	detection_data_t detection_data;
-	std::shared_ptr<image_t> det_image;
-	do {
-		detection_data = q_detect.front();
-		q_detect.pop_front();
-
-		det_image = detection_data.det_image;
-		std::vector<bbox_t> result_vec;
-
-		if (det_image)
-			result_vec = detector.detect_resized(*det_image, frame_size.width, frame_size.height, thresh, true);
-		fps_det_counter++;
-
-		detection_data.new_detection = true;
-		detection_data.result_vec = result_vec;
-		q_draw.push_back(detection_data);
-	} while (!stop_loop || detection_data.frame_id < final_frame_id);
-	std::cout << " t_detect exit \n";
-}
-
-void draw_and_track_thread(Detector &detector, std::vector<std::string> &obj_names)
-{
-	detection_data_t detection_data;
-	do {
-		// for Video-file
-		detection_data = q_draw.front();
-		// for Video-camera
-		/*
-		// use old detections
-		std::vector<bbox_t> old_result_vec = detection_data.result_vec;
-		detection_data = q_draw.front();
-		detection_data.result_vec = old_result_vec;
-		*/
-		q_draw.pop_front();
-
-		cv::Mat cap_frame = detection_data.cap_frame;
-		cv::Mat draw_frame = detection_data.cap_frame.clone();
-		std::vector<bbox_t> result_vec = detection_data.result_vec;
-
-		// track ID by using kalman filter
-		if (use_kalman_filter) {
-			if (detection_data.new_detection)
-				result_vec = track_kalman.correct(result_vec);
-			else
-				result_vec = track_kalman.predict();
-		}
-		// track ID by using custom function
-		else {
-			int frame_story = std::max(5, current_fps_cap.load());
-			result_vec = detector.tracking_id(result_vec, true, frame_story, 40);
-		}
-
-		draw_boxes(draw_frame, result_vec, obj_names, current_fps_det, current_fps_cap);
-		//show_console_result(result_vec, obj_names, detection_data.frame_id);
-
-		detection_data.result_vec = result_vec;
-		detection_data.draw_frame = draw_frame;
-		q_show.push_back(detection_data);
-
-		if (output_video.isOpened())
-			q_write.push_back(detection_data);
-	} while (!stop_loop || detection_data.frame_id < final_frame_id);
-	std::cout << " t_draw exit \n";
-}
-
-void write_frame_thread()
-{
-	detection_data_t detection_data;
-	if (output_video.isOpened()) {
-		cv::Mat output_frame;
-		do {
-			detection_data = q_write.front();
-			q_write.pop_front();
-			if (detection_data.draw_frame.channels() == 4)
-				cv::cvtColor(detection_data.draw_frame, output_frame, CV_RGBA2RGB);
-			else
-				output_frame = detection_data.draw_frame;
-			output_video << output_frame;
-		} while (!stop_loop || detection_data.frame_id < final_frame_id);
-		output_video.release();
-	}
-	std::cout << " t_write exit \n";
-}
-
-void monitoring_thread()
-{
-	std::ofstream outfile;
-	outfile.open("queue-hist.log");
-
-	do {
-		std::this_thread::sleep_for(std::chrono::milliseconds(1));
-		outfile << "cap-prep: " << q_prepare.counted_size()
-			<< " prep-detect: " << q_detect.counted_size()
-			<< " detect-draw: " << q_draw.counted_size()
-			//<< " draw-write: " << q_write.counted_size()
-			<< " draw-show: " << q_show.counted_size()
-			<< std::endl;
-	} while (!stop_loop || !display_done);
-	std::cout << " monitor exit \n";
-}
-
-
-int main(int argc, char *argv[])
-{
-	std::string names_file = "data/coco.names";
-	std::string cfg_file = "cfg/yolov3.cfg";
-	std::string weights_file = "yolov3.weights";
-	std::string filename;
-	bool show_stream = false;
-
-	if (argc > 4) {
-		// voc.names yolo-voc.cfg yolo-voc.weights test.mp4
-		names_file = argv[1];
-		cfg_file = argv[2];
-		weights_file = argv[3];
-		filename = argv[4];
-	} else if (argc > 1) {
-		filename = argv[1];
-		if (argc > 2)
-			show_stream = std::string(argv[2]).compare("show") ? false : true;
+	argagg::parser_results args;
+	try {
+		args = argparser.parse(argc, argv);
+	} catch (const std::exception &e) {
+		std::cerr << e.what() << std::endl;
+		exit(0);
 	}
 
-	thresh = (argc > 5) ? std::stof(argv[5]) : 0.2;
+	if (args["help"]) {
+		std::cerr << "Usage: " << std::string(argv[0]) << " [options] video ..." << std::endl
+			<< argparser;
+		exit(0);
+	}
 
-	Detector detector(cfg_file, weights_file);
+	std::string names_file = args["names_file"].as<std::string>("data/coco.names");
+	std::string cfg_file = args["cfg_file"].as<std::string>("cfg/yolov3.cfg");
+	std::string weights_file = args["weights_file"].as<std::string>("yolov3.weights");
+	bool show_stream = args["show_stream"] ? true : false;
+	bool write_to_video = args["write_to_video"] ? true : false;
+	float thresh = args["thresh"].as<float>(0.2);
 
-	auto obj_names = objects_names_from_file(names_file);
-	std::string out_videofile = "result.avi";
-	bool const save_output_videofile = false; // true - for history
+	if (args.pos.size() == 0) {
+		std::cerr << "must provide at least one video file" << std::endl;
+		exit(0);
+	}
 
-	// init for the detection loop
-	cv::Mat cur_frame;
-	cap.open(filename);
-	cap >> cur_frame;
-
-	std::chrono::steady_clock::time_point steady_start, steady_end;
-	int video_fps = 25;
-
-	video_fps = cap.get(cv::CAP_PROP_FPS);
-	frame_size = cur_frame.size();
-	//cv::Size const frame_size(cap.get(CV_CAP_PROP_FRAME_WIDTH), cap.get(CV_CAP_PROP_FRAME_HEIGHT));
-	std::cout << "\n Video size: " << frame_size << std::endl;
-
-	if (save_output_videofile)
-		output_video.open(out_videofile, cv::VideoWriter::fourcc('D', 'I', 'V', 'X'), std::max(35, video_fps), frame_size, true);
-
-	t_monitor = std::thread(monitoring_thread);
-
-	// capture new video-frame
-	t_cap = std::thread(capture_thread);
-
-	// pre-processing video frame (resize, convertion)
-	t_prepare = std::thread(prepare_thread, std::ref(detector));
-
-	// detection by Yolo
-	t_detect = std::thread(detect_thread, std::ref(detector));
-
-	// draw rectangles (and track objects)
-	t_draw = std::thread(draw_and_track_thread, std::ref(detector), std::ref(obj_names));
-
-	// write frame to videofile
-	t_write = std::thread(write_frame_thread);
-
-	// show detection
-	detection_data_t detection_data;
-	std::chrono::steady_clock::time_point last_frame_dequeued = std::chrono::steady_clock::now();
-	do {
-		steady_end = std::chrono::steady_clock::now();
-		float time_sec = std::chrono::duration<double>(steady_end - steady_start).count();
-		if (time_sec >= 1) {
-			current_fps_det = fps_det_counter.load() / time_sec;
-			current_fps_cap = fps_cap_counter.load() / time_sec;
-			steady_start = steady_end;
-			fps_det_counter = 0;
-			fps_cap_counter = 0;
-		}
-
-		detection_data = q_show.front();
-		q_show.pop_front();
-		std::chrono::steady_clock::time_point frame_dequeued = std::chrono::steady_clock::now();
-
-		// calculate time taken to get through pipeline
-		auto time_frame_in_pipeline = frame_dequeued - detection_data.time_captured;
-		auto i_millis = std::chrono::duration_cast<std::chrono::milliseconds>(time_frame_in_pipeline);
-		float time_frame_in_pipeline_ms = i_millis.count() / 1000;
-
-		// calculate fps per-frame
-		auto frame_interval = frame_dequeued - last_frame_dequeued;
-		auto f_millis = std::chrono::duration_cast<std::chrono::milliseconds>(frame_interval);
-		float fps = 1000/f_millis.count();
-
-		if (show_stream) {
-			cv::Mat draw_frame = detection_data.draw_frame;
-			cv::imshow("window name", draw_frame);
-			cv::waitKey(1);
-		}
-
-		std::cout << " current_fps_det = " << current_fps_det << ", current_fps_cap = " << current_fps_cap << std::endl;
-		std::cout << "fps = " << fps << "\tframe interval (ms) = " << f_millis.count() << "\ttime frame in pipeline (ms) = " << time_frame_in_pipeline_ms << std::endl;
-		last_frame_dequeued = frame_dequeued;
-	} while (!stop_loop || detection_data.frame_id < final_frame_id);
-	display_done = true;
-	std::cout << " show detection exit \n";
-
-	if (show_stream)
-		cv::destroyWindow("window name");
-	// wait for all threads
-	if (t_cap.joinable())
-		t_cap.join();
-	if (t_prepare.joinable())
-		t_prepare.join();
-	if (t_detect.joinable())
-		t_detect.join();
-	if (t_draw.joinable())
-		t_draw.join();
-	if (t_write.joinable())
-		t_write.join();
-	if (t_monitor.joinable())
-		t_monitor.join();
+	for (const char *video_name : args.pos) {
+		Pipeline pipeline(cfg_file, weights_file, names_file, std::string(video_name), show_stream, write_to_video, thresh);
+		pipeline.run();
+	}
 
 	return 0;
 }
