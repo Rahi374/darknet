@@ -40,6 +40,7 @@ ehthumbs.db
 Icon?
 Thumbs.db
 *.swp
+.__afs*
 
 # IDE generated #
 .vs/
