@@ -20,6 +20,8 @@
 
 void Pipeline::capture_thread(cv::VideoCapture &cap)
 {
+	std::cout << " t_cap start\n";
+
 	uint64_t frame_id = 0;
 	do {
 		detection_data_t detection_data = detection_data_t();
@@ -36,16 +38,16 @@ void Pipeline::capture_thread(cv::VideoCapture &cap)
 			break;
 		}
 
-		q_draw.push_back(detection_data);
-
 		q_prepare.push_back(detection_data);
+
 	} while (!stop_loop);
 
-	std::cout << " t_cap exit \n";
+	std::cout << " t_cap exit\n";
 }
 
 void Pipeline::prepare_thread(Detector &detector)
 {
+	std::cout << " t_prepare start\n";
 	detection_data_t detection_data;
 	std::shared_ptr<image_t> det_image;
 	do {
@@ -56,11 +58,12 @@ void Pipeline::prepare_thread(Detector &detector)
 		detection_data.det_image = det_image;
 		q_detect.push_back(detection_data);
 	} while (!stop_loop || detection_data.frame_id < final_frame_id);
-	std::cout << " t_prepare exit \n";
+	std::cout << " t_prepare exit\n";
 }
 
 void Pipeline::detect_thread(Detector &detector)
 {
+	std::cout << " t_detect start\n";
 	detection_data_t detection_data;
 	std::shared_ptr<image_t> det_image;
 	do {
@@ -78,22 +81,22 @@ void Pipeline::detect_thread(Detector &detector)
 		detection_data.result_vec = result_vec;
 		q_draw.push_back(detection_data);
 	} while (!stop_loop || detection_data.frame_id < final_frame_id);
-	std::cout << " t_detect exit \n";
+	std::cout << " t_detect exit\n";
 }
 
 void Pipeline::draw_and_track_thread(Detector &detector, std::vector<std::string> &obj_names)
 {
+	std::cout << " t_draw start\n";
 	detection_data_t detection_data;
+	bool first_time = true;
 	do {
-		// for Video-file
-		detection_data = q_draw.front();
-		// for Video-camera
-		/*
-		// use old detections
-		std::vector<bbox_t> old_result_vec = detection_data.result_vec;
-		detection_data = q_draw.front();
-		detection_data.result_vec = old_result_vec;
-		*/
+		if (first_time) {
+			detection_data = q_draw.front();
+		} else {
+			std::vector<bbox_t> old_result_vec = detection_data.result_vec;
+			detection_data = q_draw.front();
+			detection_data.result_vec = old_result_vec;
+		}
 		q_draw.pop_front();
 
 		cv::Mat cap_frame = detection_data.cap_frame;
@@ -113,8 +116,9 @@ void Pipeline::draw_and_track_thread(Detector &detector, std::vector<std::string
 			result_vec = detector.tracking_id(result_vec, true, frame_story, 40);
 		}
 
-		draw_boxes(draw_frame, result_vec, obj_names, current_fps_det, current_fps_cap);
-		//show_console_result(result_vec, obj_names, detection_data.frame_id);
+		draw_boxes(draw_frame, result_vec, obj_names, current_fps_det, current_fps_cap, detection_data.frame_id);
+		if (show_console)
+			show_console_result(result_vec, obj_names, detection_data.frame_id);
 
 		detection_data.result_vec = result_vec;
 		detection_data.draw_frame = draw_frame;
@@ -123,11 +127,12 @@ void Pipeline::draw_and_track_thread(Detector &detector, std::vector<std::string
 		if (output_video.isOpened())
 			q_write.push_back(detection_data);
 	} while (!stop_loop || detection_data.frame_id < final_frame_id);
-	std::cout << " t_draw exit \n";
+	std::cout << " t_draw exit\n";
 }
 
 void Pipeline::write_frame_thread()
 {
+	std::cout << " t_write start\n";
 	detection_data_t detection_data;
 	if (output_video.isOpened()) {
 		cv::Mat output_frame;
@@ -142,11 +147,12 @@ void Pipeline::write_frame_thread()
 		} while (!stop_loop || detection_data.frame_id < final_frame_id);
 		output_video.release();
 	}
-	std::cout << " t_write exit \n";
+	std::cout << " t_write exit\n";
 }
 
 void Pipeline::display_thread()
 {
+	std::cout << " t_display start\n";
 	detection_data_t detection_data;
 	std::chrono::steady_clock::time_point last_frame_dequeued = std::chrono::steady_clock::now();
 	do {
@@ -184,11 +190,14 @@ void Pipeline::display_thread()
 		std::cout << "fps = " << fps << "\tframe interval (ms) = " << f_millis.count() << "\ttime frame in pipeline (ms) = " << time_frame_in_pipeline_ms << std::endl;
 		last_frame_dequeued = frame_dequeued;
 	} while (!stop_loop || detection_data.frame_id < final_frame_id);
-
+	is_running = false;
+	display_done = true;
+	std::cout << " t_display exit\n";
 }
 
 void Pipeline::monitoring_thread()
 {
+	std::cout << " monitor start\n";
 	std::ofstream outfile;
 	outfile.open("queue-hist.log");
 
@@ -201,12 +210,13 @@ void Pipeline::monitoring_thread()
 			<< " draw-show: " << q_show.counted_size()
 			<< std::endl;
 	} while (!stop_loop || !display_done);
-	std::cout << " monitor exit \n";
+	std::cout << " monitor exit\n";
 }
 
-Pipeline::Pipeline(std::string cfg_file, std::string weights_file, std::string names_file, std::string video_filename, bool show_stream, bool save_output_videofile, float thresh)
-	: stop_loop(false), display_done(false), use_kalman_filter(false), final_frame_id(UINT_MAX), fps_cap_counter(0), fps_det_counter(0), current_fps_cap(0), current_fps_det(0), detector(cfg_file, weights_file), show_stream(show_stream), thresh(thresh)
+Pipeline::Pipeline(int thread_id, std::string cfg_file, std::string weights_file, std::string names_file, std::string video_filename, bool show_stream, bool save_output_videofile, float thresh, bool output_to_console)
+	: thread_id(thread_id), stop_loop(false), display_done(false), use_kalman_filter(true), final_frame_id(UINT_MAX), fps_cap_counter(0), fps_det_counter(0), current_fps_cap(0), current_fps_det(0), detector(cfg_file, weights_file), show_stream(show_stream), thresh(thresh), is_running(true), show_console(output_to_console)
 {
+	std::cout << "CONSTRUCTING PIPELINE" << std::endl;
 	obj_names = objects_names_from_file(names_file);
 	std::string out_videofile = "result_" + (video_filename.find("/") == std::string::npos ? video_filename : video_filename.substr(video_filename.rfind("/") + 1)) + ".avi";
 	std::cout << "OUTPUT VIDEO FILE IS " << out_videofile << std::endl;
@@ -225,14 +235,35 @@ Pipeline::Pipeline(std::string cfg_file, std::string weights_file, std::string n
 
 	if (save_output_videofile) {
 		std::cout << "WE GONNA SAVE SOME VIDEO" << std::endl;
-		output_video.open(out_videofile, cv::VideoWriter::fourcc('D', 'I', 'V', 'X'), std::max(35, video_fps), frame_size, true);
+		output_video.open(out_videofile, cv::VideoWriter::fourcc('M', 'J', 'P', 'G'), std::max(35, video_fps), frame_size, true);
 	}
+	std::cout << "DONE CONSTRUCTING PIPELINE" << std::endl;
 }
 
-Pipeline::~Pipeline() { }
+Pipeline::~Pipeline()
+{
+	// wait for all threads
+	if (t_cap.joinable())
+		t_cap.join();
+	if (t_prepare.joinable())
+		t_prepare.join();
+	if (t_detect.joinable())
+		t_detect.join();
+	if (t_draw.joinable())
+		t_draw.join();
+	if (t_write.joinable())
+		t_write.join();
+	if (t_display.joinable())
+		t_display.join();
+	if (t_monitor.joinable())
+		t_monitor.join();
+	if (show_stream)
+		cv::destroyWindow("window name");
+}
 
 void Pipeline::run()
 {
+	std::cout << "WE BE RUNNING!" << std::endl;
 	t_monitor = std::thread([=] {monitoring_thread();});
 
 	// capture new video-frame
@@ -252,25 +283,6 @@ void Pipeline::run()
 
 	// show detection
 	t_display = std::thread([=] {display_thread();});
-
-	display_done = true;
-	std::cout << " show detection exit \n";
-
-	if (show_stream)
-		cv::destroyWindow("window name");
-	// wait for all threads
-	if (t_cap.joinable())
-		t_cap.join();
-	if (t_prepare.joinable())
-		t_prepare.join();
-	if (t_detect.joinable())
-		t_detect.join();
-	if (t_draw.joinable())
-		t_draw.join();
-	if (t_write.joinable())
-		t_write.join();
-	if (t_monitor.joinable())
-		t_monitor.join();
 }
 
 #ifdef OPENCV
@@ -300,7 +312,7 @@ std::vector<bbox_t> Pipeline::get_3d_coordinates(std::vector<bbox_t> bbox_vect, 
 #endif // CV_VERSION_EPOCH
 
 void Pipeline::draw_boxes(cv::Mat mat_img, std::vector<bbox_t> result_vec, std::vector<std::string> obj_names,
-		int current_det_fps, int current_cap_fps)
+		int current_det_fps, int current_cap_fps, uint64_t frame_id)
 {
 	// int const colors[6][3] = { { 1, 0, 1 }, { 0, 0, 1 }, { 0, 1, 1 }, { 0, 1, 0 }, { 1, 1, 0 }, { 1, 0, 0 } };
 
@@ -334,10 +346,13 @@ void Pipeline::draw_boxes(cv::Mat mat_img, std::vector<bbox_t> result_vec, std::
 				putText(mat_img, coords_3d, cv::Point2f(i.x, i.y - 1), cv::FONT_HERSHEY_COMPLEX_SMALL, 0.8, cv::Scalar(0, 0, 0), 1);
 		}
 	}
+
 	if (current_det_fps >= 0 && current_cap_fps >= 0) {
 		std::string fps_str = "FPS detection: " + std::to_string(current_det_fps) + "   FPS capture: " + std::to_string(current_cap_fps);
 		putText(mat_img, fps_str, cv::Point2f(10, 20), cv::FONT_HERSHEY_COMPLEX_SMALL, 1.2, cv::Scalar(50, 255, 0), 2);
 	}
+
+	putText(mat_img, "frame " + std::to_string(frame_id), cv::Point2f(10, 50), cv::FONT_HERSHEY_COMPLEX_SMALL, 1.2, cv::Scalar(50, 255, 0), 2);
 }
 #endif // OPENCV
 
@@ -348,9 +363,9 @@ void Pipeline::show_console_result(std::vector<bbox_t> const result_vec, std::ve
 	for (auto &i : result_vec) {
 		if (obj_names.size() > i.obj_id)
 			std::cout << obj_names[i.obj_id] << " - ";
-		std::cout << "obj_id = " << i.obj_id << ",  x = " << i.x << ", y = " << i.y
-			  << ", w = " << i.w << ", h = " << i.h
-			  << std::setprecision(3) << ", prob = " << i.prob << std::endl;
+		std::cout << "\tobj_id = " << i.obj_id << ", \ttrack_id = " << std::setw(3) << std::setfill('0') << i.track_id << ", \tx = " << i.x << ",  \ty = " << i.y
+			  << ", \tw = " << i.w << ", \th = " << i.h
+			  << std::setprecision(3) << ", \tprob = " << i.prob << std::endl;
 	}
 }
 

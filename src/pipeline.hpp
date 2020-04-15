@@ -32,7 +32,7 @@ struct detection_data_t {
 class Pipeline {
 
 public:
-	Pipeline(std::string cfg_file, std::string weights_file, std::string names_file, std::string video_filename, bool show_stream, bool save_output_videofile, float thresh);
+	Pipeline(int thread_id, std::string cfg_file, std::string weights_file, std::string names_file, std::string video_filename, bool show_stream, bool save_output_videofile, float thresh, bool output_to_console);
 	~Pipeline();
 
 	void run();
@@ -40,13 +40,16 @@ public:
 #ifdef OPENCV
 	std::vector<bbox_t> get_3d_coordinates(std::vector<bbox_t> bbox_vect, cv::Mat xyzrgba);
 	void draw_boxes(cv::Mat mat_img, std::vector<bbox_t> result_vec, std::vector<std::string> obj_names,
-			int current_det_fps = -1, int current_cap_fps = -1);
+			int current_det_fps, int current_cap_fps, uint64_t frame_id);
 #endif
 
 	void show_console_result(std::vector<bbox_t> const result_vec, std::vector<std::string> const obj_names, int frame_id = -1);
 	std::vector<std::string> objects_names_from_file(std::string const filename);
 
 private:
+	int thread_id;
+
+	bool is_running;
 	bool stop_loop;
 	bool display_done;
 	std::thread t_cap, t_prepare, t_detect, t_draw, t_write, t_monitor, t_display;
@@ -68,6 +71,7 @@ private:
 	uint64_t final_frame_id;
 
 	bool show_stream;
+	bool show_console;
 	std::vector<std::string> obj_names;
 
 	void capture_thread(cv::VideoCapture &cap);
