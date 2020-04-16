@@ -13,6 +13,7 @@
 #include <algorithm>
 #include <memory>
 #include <mutex>
+#include <thread>
 #include <ctime>
 using std::cerr;
 using std::endl;
@@ -680,6 +681,28 @@ void stop_timer_and_show_name(char *name) {
 
 void show_total_time() {
     std::cout << " Total: " << total_time * 1000 << " msec" << std::endl;
+}
+
+
+int custom_create_thread(custom_thread_t * tid, const custom_attr_t * attr, void *(*func) (void *), void *arg)
+{
+    std::thread *ptr = new std::thread(func, arg);
+    *tid = (custom_thread_t *)ptr;
+    if (tid) return 0;
+    else return -1;
+}
+
+int custom_join(custom_thread_t tid, void **value_ptr)
+{
+    std::thread *ptr = (std::thread *)tid;
+    if (ptr) {
+        ptr->join();
+        delete ptr;
+        return 0;
+    }
+    else printf(" Error: ptr of thread is NULL in custom_join() \n");
+
+    return -1;
 }
 
 #else // C++11

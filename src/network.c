@@ -1092,6 +1092,12 @@ static float relu(float src) {
     return 0;
 }
 
+static float lrelu(float src) {
+    const float eps = 0.001;
+    if (src > eps) return src;
+    return eps;
+}
+
 void fuse_conv_batchnorm(network net)
 {
     int j;
@@ -1133,8 +1139,9 @@ void fuse_conv_batchnorm(network net)
         {
             if (l->nweights > 0) {
                 //cuda_pull_array(l.weights_gpu, l.weights, l.nweights);
-                for (int i = 0; i < l->nweights; ++i) printf(" w = %f,", l->weights[i]);
-                printf(" l->nweights = %d \n", l->nweights);
+                int i;
+                for (i = 0; i < l->nweights; ++i) printf(" w = %f,", l->weights[i]);
+                printf(" l->nweights = %d, j = %d \n", l->nweights, j);
             }
 
             // nweights - l.n or l.n*l.c or (l.n*l.c*l.h*l.w)
@@ -1159,14 +1166,14 @@ void fuse_conv_batchnorm(network net)
                 for (i = 0; i < (l->n + 1); ++i) {
                     int w_index = chan + i * layer_step;
                     float w = l->weights[w_index];
-                    if (l->weights_normalizion == RELU_NORMALIZATION) sum += relu(w);
+                    if (l->weights_normalizion == RELU_NORMALIZATION) sum += lrelu(w);
                     else if (l->weights_normalizion == SOFTMAX_NORMALIZATION) sum += expf(w - max_val);
                 }
 
                 for (i = 0; i < (l->n + 1); ++i) {
                     int w_index = chan + i * layer_step;
                     float w = l->weights[w_index];
-                    if (l->weights_normalizion == RELU_NORMALIZATION) w = relu(w) / sum;
+                    if (l->weights_normalizion == RELU_NORMALIZATION) w = lrelu(w) / sum;
                     else if (l->weights_normalizion == SOFTMAX_NORMALIZATION) w = expf(w - max_val) / sum;
                     l->weights[w_index] = w;
                 }

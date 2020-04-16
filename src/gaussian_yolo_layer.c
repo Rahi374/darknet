@@ -371,25 +371,20 @@ void delta_gaussian_yolo_class(float *output, float *delta, int index, int class
 {
     int n;
     if (delta[index]){
-        if (label_smooth_eps > 0) {
-            float out_val = output[index + stride*class_id] * (1 - label_smooth_eps) + 0.5*label_smooth_eps;
-            delta[index + stride*class_id] = 1 - out_val;
-        }
-        else {
-            delta[index + stride*class_id] = 1 - output[index + stride*class_id];
-        }
+        float y_true = 1;
+        if (label_smooth_eps) y_true = y_true *  (1 - label_smooth_eps) + 0.5*label_smooth_eps;
+        delta[index + stride*class_id] = y_true - output[index + stride*class_id];
+        //delta[index + stride*class_id] = 1 - output[index + stride*class_id];
+
         if (classes_multipliers) delta[index + stride*class_id] *= classes_multipliers[class_id];
         if(avg_cat) *avg_cat += output[index + stride*class_id];
         return;
     }
     for(n = 0; n < classes; ++n){
-        if (label_smooth_eps > 0) {
-            float out_val = output[index + stride*class_id] * (1 - label_smooth_eps) + 0.5*label_smooth_eps;
-            delta[index + stride*n] = ((n == class_id) ? 1 : 0) - out_val;
-        }
-        else {
-            delta[index + stride*n] = ((n == class_id) ? 1 : 0) - output[index + stride*n];
-        }
+        float y_true = ((n == class_id) ? 1 : 0);
+        if (label_smooth_eps) y_true = y_true *  (1 - label_smooth_eps) + 0.5*label_smooth_eps;
+        delta[index + stride*n] = y_true - output[index + stride*n];
+
         if (classes_multipliers && n == class_id) delta[index + stride*class_id] *= classes_multipliers[class_id];
         if(n == class_id && avg_cat) *avg_cat += output[index + stride*n];
     }
@@ -497,6 +492,18 @@ void forward_gaussian_yolo_layer(const layer l, network_state state)
                     if (best_match_iou > l.ignore_thresh) {
                         l.delta[obj_index] = 0;
                     }
+                    else if (state.net.adversarial) {
+                        int class_index = entry_gaussian_index(l, b, n*l.w*l.h + j*l.w + i, 9);
+                        int stride = l.w*l.h;
+                        float scale = pred.w * pred.h;
+                        if (scale > 0) scale = sqrt(scale);
+                        l.delta[obj_index] = scale * l.cls_normalizer * (0 - l.output[obj_index]);
+                        int cl_id;
+                        for (cl_id = 0; cl_id < l.classes; ++cl_id) {
+                            if (l.output[class_index + stride*cl_id] * l.output[obj_index] > 0.25)
+                                l.delta[class_index + stride*cl_id] = scale * (0 - l.output[class_index + stride*cl_id]);
+                        }
+                    }
                     if (best_iou > l.truth_thresh) {
                         l.delta[obj_index] = l.cls_normalizer * (1 - l.output[obj_index]);
 
@@ -575,7 +582,7 @@ void forward_gaussian_yolo_layer(const layer l, network_state state)
                     box pred = { 0 };
                     pred.w = l.biases[2 * n] / state.net.w;
                     pred.h = l.biases[2 * n + 1] / state.net.h;
-                    float iou = box_iou(pred, truth_shift);
+                    float iou = box_iou_kind(pred, truth_shift, l.iou_thresh_kind); // IOU, GIOU, MSE, DIOU, CIOU
                     // iou, n
 
                     if (iou > l.iou_thresh) {
