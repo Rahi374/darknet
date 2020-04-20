@@ -79,29 +79,28 @@ void Pipeline::detect_thread(Detector &detector)
 
 		detection_data.new_detection = true;
 		detection_data.result_vec = result_vec;
-		q_draw.push_back(detection_data);
+		q_track.push_back(detection_data);
 	} while (!stop_loop || detection_data.frame_id < final_frame_id);
 	std::cout << " t_detect exit\n";
 }
 
-void Pipeline::draw_and_track_thread(Detector &detector, std::vector<std::string> &obj_names)
+void Pipeline::track_thread(Detector &detector)
 {
-	std::cout << " t_draw start\n";
+	std::cout << " t_track start\n";
 	detection_data_t detection_data;
 	bool first_time = true;
 	do {
 		if (first_time) {
-			detection_data = q_draw.front();
+			detection_data = q_track.front();
 		} else {
 			std::vector<bbox_t> old_result_vec = detection_data.result_vec;
-			detection_data = q_draw.front();
+			detection_data = q_track.front();
 			detection_data.result_vec = old_result_vec;
 		}
-		q_draw.pop_front();
-
-		cv::Mat cap_frame = detection_data.cap_frame;
-		cv::Mat draw_frame = detection_data.cap_frame.clone();
+		q_track.pop_front();
 		std::vector<bbox_t> result_vec = detection_data.result_vec;
+
+		detection_data.draw_frame = detection_data.cap_frame.clone();
 
 		// track ID by using kalman filter
 		if (use_kalman_filter) {
@@ -113,15 +112,33 @@ void Pipeline::draw_and_track_thread(Detector &detector, std::vector<std::string
 		// track ID by using custom function
 		else {
 			int frame_story = std::max(5, current_fps_cap.load());
-			result_vec = detector.tracking_id(result_vec, true, frame_story, 40);
+			result_vec = detector.tracking_id(result_vec, true, frame_story, 40); // CORE
 		}
 
-		draw_boxes(draw_frame, result_vec, obj_names, current_fps_det, current_fps_cap, detection_data.frame_id);
-		if (show_console)
-			show_console_result(result_vec, obj_names, detection_data.frame_id);
-
 		detection_data.result_vec = result_vec;
+		q_draw.push_back(detection_data);
+	} while (!stop_loop || detection_data.frame_id < final_frame_id);
+	std::cout << " t_track exit\n";
+}
+
+void Pipeline::draw_thread(std::vector<std::string> &obj_names)
+{
+	std::cout << " t_draw start\n";
+	detection_data_t detection_data;
+	do {
+		detection_data = q_draw.front();
+		q_draw.pop_front();
+		std::vector<bbox_t> result_vec = detection_data.result_vec;
+
+		// OP
+		cv::Mat draw_frame = detection_data.draw_frame.clone();
+
+		draw_boxes(draw_frame, detection_data.result_vec, obj_names, current_fps_det, current_fps_cap, detection_data.frame_id); // CORE
+		if (show_console)
+			show_console_result(detection_data.result_vec, obj_names, detection_data.frame_id);
+
 		detection_data.draw_frame = draw_frame;
+		detection_data.result_vec = result_vec;
 		q_show.push_back(detection_data);
 
 		if (output_video.isOpened())
@@ -205,7 +222,8 @@ void Pipeline::monitoring_thread()
 		std::this_thread::sleep_for(std::chrono::milliseconds(1));
 		outfile << "cap-prep: " << q_prepare.counted_size()
 			<< " prep-detect: " << q_detect.counted_size()
-			<< " detect-draw: " << q_draw.counted_size()
+			<< " detect-track: " << q_track.counted_size()
+			<< " track-draw: " << q_draw.counted_size()
 			//<< " draw-write: " << q_write.counted_size()
 			<< " draw-show: " << q_show.counted_size()
 			<< std::endl;
@@ -249,6 +267,8 @@ Pipeline::~Pipeline()
 		t_prepare.join();
 	if (t_detect.joinable())
 		t_detect.join();
+	if (t_track.joinable())
+		t_track.join();
 	if (t_draw.joinable())
 		t_draw.join();
 	if (t_write.joinable())
@@ -275,8 +295,11 @@ void Pipeline::run()
 	// detection by Yolo
 	t_detect = std::thread([=] {detect_thread(detector);});
 
-	// draw rectangles (and track objects)
-	t_draw = std::thread([=] {draw_and_track_thread(detector, obj_names);});
+	// track objects
+	t_track = std::thread([=] {track_thread(detector);});
+
+	// draw rectangles
+	t_draw = std::thread([=] {draw_thread(obj_names);});
 
 	// write frame to videofile
 	t_write = std::thread([=] {write_frame_thread();});

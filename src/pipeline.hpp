@@ -52,9 +52,9 @@ private:
 	bool is_running;
 	bool stop_loop;
 	bool display_done;
-	std::thread t_cap, t_prepare, t_detect, t_draw, t_write, t_monitor, t_display;
+	std::thread t_cap, t_prepare, t_detect, t_track, t_draw, t_write, t_monitor, t_display;
 	bool const use_kalman_filter;
-	SharedQueue<detection_data_t> q_prepare, q_detect, q_draw, q_write, q_show;
+	SharedQueue<detection_data_t> q_prepare, q_detect, q_track, q_draw, q_write, q_show;
 	std::atomic<int> fps_cap_counter, fps_det_counter;
 	std::atomic<int> current_fps_cap, current_fps_det;
 
@@ -77,7 +77,8 @@ private:
 	void capture_thread(cv::VideoCapture &cap);
 	void prepare_thread(Detector &detector);
 	void detect_thread(Detector &detector);
-	void draw_and_track_thread(Detector &detector, std::vector<std::string> &obj_names);
+	void track_thread(Detector &detector);
+	void draw_thread(std::vector<std::string> &obj_names);
 	void write_frame_thread();
 	void display_thread();
 	void monitoring_thread();
