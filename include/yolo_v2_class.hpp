@@ -79,6 +79,8 @@ const std::string detection_time_diff_names[9] = {
 	"draw",
 };
 
+extern int cuda_mat_to_image(image_t *dst, unsigned char *mat, int width, int height, int step);
+
 class Detector
 {
 	std::shared_ptr<void> detector_gpu_ptr;
@@ -134,12 +136,26 @@ public:
 		if (mat.data == NULL)
 			return std::shared_ptr<image_t>(NULL);
 
+#ifdef GPU
+		if (mat.channels() != 3) {
+			std::cerr << "We only support 3 channels. Frame has " << mat.channels() << " channels.";
+			return std::shared_ptr<image_t>(NULL);
+		}
+#endif
+
 		cv::Size network_size = cv::Size(get_net_width(), get_net_height());
 		cv::Mat det_mat;
 		if (mat.size() != network_size)
 			cv::resize(mat, det_mat, network_size);
 		else
 			det_mat = mat; // only reference is copied
+
+#ifdef GPU
+		std::shared_ptr<image_t> image_ptr(new image_t, [](image_t *img) { free_image(*img); delete img; });
+		*image_ptr = make_image_custom(det_mat.cols, det_mat.rows, det_mat.channels());
+		cuda_mat_to_image(image_ptr.get(), (unsigned char *)det_mat.data, det_mat.cols, det_mat.rows, det_mat.step);
+		return image_ptr;
+#endif
 
 		return mat_to_image(det_mat);
 	}
