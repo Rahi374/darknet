@@ -67,7 +67,8 @@ extern "C" LIB_API bool built_with_cudnn();
 extern "C" LIB_API bool built_with_opencv();
 extern "C" LIB_API void send_json_custom(char const *send_buf, int port, int timeout);
 
-extern int cuda_mat_to_image(image_t *dst, unsigned char *mat, int width, int height, int step);
+extern int cuda_mat_to_image_resize(image_t *dst, int dst_w, int dst_h,
+				    unsigned char *src, int src_w, int src_h, int src_step);
 
 class Detector
 {
@@ -129,7 +130,13 @@ public:
 			std::cerr << "We only support 3 channels. Frame has " << mat.channels() << " channels.";
 			return std::shared_ptr<image_t>(NULL);
 		}
-#endif
+
+		std::shared_ptr<image_t> image_ptr(new image_t, [](image_t *img) { free_image(*img); delete img; });
+		*image_ptr = make_image_custom(get_net_width(), get_net_height(), 3);
+		cuda_mat_to_image_resize(image_ptr.get(), get_net_width(), get_net_height(),
+					 (unsigned char *)mat.data, mat.cols, mat.rows, mat.step);
+		return image_ptr;
+#else
 
 		cv::Size network_size = cv::Size(get_net_width(), get_net_height());
 		cv::Mat det_mat;
@@ -138,14 +145,8 @@ public:
 		else
 			det_mat = mat; // only reference is copied
 
-#ifdef GPU
-		std::shared_ptr<image_t> image_ptr(new image_t, [](image_t *img) { free_image(*img); delete img; });
-		*image_ptr = make_image_custom(det_mat.cols, det_mat.rows, det_mat.channels());
-		cuda_mat_to_image(image_ptr.get(), (unsigned char *)det_mat.data, det_mat.cols, det_mat.rows, det_mat.step);
-		return image_ptr;
-#endif
-
 		return mat_to_image(det_mat);
+#endif
 	}
 
 	static std::shared_ptr<image_t> mat_to_image(cv::Mat img_src)
