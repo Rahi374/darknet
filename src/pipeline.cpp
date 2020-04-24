@@ -364,14 +364,19 @@ void Pipeline::draw_boxes(cv::Mat mat_img, std::vector<bbox_t> result_vec, std::
 
 void Pipeline::show_console_result(std::vector<bbox_t> const result_vec, std::vector<std::string> const obj_names, int frame_id)
 {
-	if (frame_id >= 0)
-		std::cout << " Frame: " << frame_id << std::endl;
 	for (auto &i : result_vec) {
+		std::cout << "Entry f " << frame_id << " ";
+
 		if (obj_names.size() > i.obj_id)
 			std::cout << obj_names[i.obj_id] << " - ";
-		std::cout << "\tobj_id = " << i.obj_id << ", \ttrack_id = " << std::setw(3) << std::setfill('0') << i.track_id << ", \tx = " << i.x << ",  \ty = " << i.y
-			  << ", \tw = " << i.w << ", \th = " << i.h
-			  << std::setprecision(3) << ", \tprob = " << i.prob << std::endl;
+		else
+			std::cout << "unknown" << " - ";
+
+		std::cout << "\tobj_id = " << i.obj_id
+			  << "\ttrack_id = " << std::setw(3) << std::setfill('0') << i.track_id
+			  << "\tx = " << i.x << "   \ty = " << i.y
+			  << "  \tw = " << i.w << "  \th = " << i.h
+			  << std::setprecision(3) << "  \tprob = " << i.prob << std::endl;
 	}
 }
 
