@@ -34,13 +34,13 @@ int cuda_mat_to_image_resize(image_t *dst, int dst_w, int dst_h,
 	dim3 dimGrid(ceil(dst_w/(float)32), ceil(dst_h/(float)32));
 	dim3 dimBlock(32, 32);
 
-	CHECK_CUDA(cudaMemcpy(d_src, src, src_size, cudaMemcpyHostToDevice));
-	mat_to_image_resize_gpu<<<dimGrid, dimBlock>>>(d_dst, dst_w, dst_h, d_src, src_w, src_h, src_step);
+	CHECK_CUDA(cudaMemcpyAsync(d_src, src, src_size, cudaMemcpyHostToDevice, get_cuda_stream()));
+	mat_to_image_resize_gpu<<<dimGrid, dimBlock, 0, get_cuda_stream()>>>(d_dst, dst_w, dst_h, d_src, src_w, src_h, src_step);
 	CHECK_CUDA(cudaGetLastError());
 
-	cudaDeviceSynchronize();
+	CHECK_CUDA(cudaMemcpyAsync(dst->data, d_dst, dst_size, cudaMemcpyDeviceToHost, get_cuda_stream()));
+	cudaStreamSynchronize(get_cuda_stream());
 
-	CHECK_CUDA(cudaMemcpy(dst->data, d_dst, dst_size, cudaMemcpyDeviceToHost));
 	CHECK_CUDA(cudaFree(d_src));
 	CHECK_CUDA(cudaFree(d_dst));
 
