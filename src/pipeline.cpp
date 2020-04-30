@@ -89,15 +89,9 @@ void Pipeline::track_thread(Detector &detector)
 {
 	std::cout << " t_track start\n";
 	detection_data_t detection_data;
-	bool first_time = true;
 	do {
-		if (first_time) {
-			detection_data = q_track.front();
-		} else {
-			std::vector<bbox_t> old_result_vec = detection_data.result_vec;
-			detection_data = q_track.front();
-			detection_data.result_vec = old_result_vec;
-		}
+		detection_data = q_track.front();
+
 		q_track.pop_front();
 		std::vector<bbox_t> result_vec = detection_data.result_vec;
 
