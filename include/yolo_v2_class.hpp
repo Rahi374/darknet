@@ -82,6 +82,10 @@ const std::string detection_time_diff_names[9] = {
 extern int cuda_mat_to_image(image_t *dst, unsigned char *mat, int width, int height, int step);
 extern int cuda_mat_to_image_resize(image_t *dst, int dst_w, int dst_h,
 				    unsigned char *src, int src_w, int src_h, int src_step);
+extern int cuda_do_tracking(/* rw */ bbox_t *cur_bbox_vec, int cur_bbox_len,
+			    /* ro */ bool const change_history, int const frames_story, int const max_dist,
+			    /* ro */ bbox_t **prev_bbox_vec, int *prev_bbox_vec_offsets, int *prev_bbox_vec_sizes,
+			    /* ro */ int prev_bbox_count, int prev_bbox_max_len, int prev_bbox_total_len);
 
 class Detector
 {

@@ -390,6 +390,63 @@ LIB_API std::vector<bbox_t> Detector::tracking_id(std::vector<bbox_t> cur_bbox_v
 		return cur_bbox_vec;
 	}
 
+#ifdef GPU
+	int cur_bbox_len = cur_bbox_vec.size();
+	if (cur_bbox_len == 0)
+		return cur_bbox_vec;
+	bbox_t *cur_bbox_arr = cur_bbox_vec.data();
+
+	int prev_bbox_count = prev_bbox_vec_deque.size();
+	bbox_t **prev_bbox_vec = (bbox_t **)calloc(prev_bbox_count, sizeof(bbox_t *));
+	int *prev_bbox_vec_offsets = (int *)calloc(prev_bbox_count, sizeof(int));
+	int *prev_bbox_vec_sizes = (int *)calloc(prev_bbox_count, sizeof(int));
+	int prev_bbox_total_len = 0;
+	int max_len = 0;
+	int index = 0;
+	for (std::vector<bbox_t> bbox_vec : prev_bbox_vec_deque) {
+		int size = bbox_vec.size();
+		prev_bbox_vec_sizes[index] = size;
+
+		prev_bbox_vec[index] = (bbox_t *)malloc(size * sizeof(bbox_t));
+		memcpy(prev_bbox_vec[index], bbox_vec.data(), size * sizeof(bbox_t));
+
+		prev_bbox_vec_offsets[index] = (index == 0 ? 0 : prev_bbox_vec_offsets[index-1] + prev_bbox_vec_sizes[index-1]);
+		if (size > max_len)
+			max_len = size;
+		prev_bbox_total_len += size;
+		index++;
+	}
+	int prev_bbox_vec_max_len = max_len;
+
+	cuda_do_tracking(cur_bbox_arr, cur_bbox_len,
+			 change_history, frames_story, max_dist,
+			 prev_bbox_vec, prev_bbox_vec_offsets, prev_bbox_vec_sizes,
+			 prev_bbox_count, max_len, prev_bbox_total_len);
+	cur_bbox_vec.assign(cur_bbox_arr, cur_bbox_arr + cur_bbox_len);
+
+	// for every new object that doesn't have a tracking id yet, assign it to a new one
+	for (size_t i = 0; i < cur_bbox_vec.size(); ++i)
+		if (cur_bbox_vec[i].track_id == 0)
+			cur_bbox_vec[i].track_id = det_gpu.track_id[cur_bbox_vec[i].obj_id]++;
+
+	// save the detections for this frame in the old detections queue
+	if (change_history) {
+		prev_bbox_vec_deque.push_front(cur_bbox_vec);
+		if (prev_bbox_vec_deque.size() > frames_story)
+			prev_bbox_vec_deque.pop_back();
+	}
+
+	for (int i = 0; i < index; i++)
+		free(prev_bbox_vec[i]);
+
+	free(prev_bbox_vec);
+	free(prev_bbox_vec_offsets);
+	free(prev_bbox_vec_sizes);
+
+	return cur_bbox_vec;
+#endif
+
+
 	std::vector<unsigned int> dist_vec(cur_bbox_vec.size(), std::numeric_limits<unsigned int>::max());
 
 	// for every set of old detections...
