@@ -97,18 +97,7 @@ void Pipeline::track_thread(Detector &detector)
 
 		detection_data.draw_frame = detection_data.cap_frame.clone();
 
-		// track ID by using kalman filter
-		if (use_kalman_filter) {
-			if (detection_data.new_detection)
-				result_vec = track_kalman.correct(result_vec);
-			else
-				result_vec = track_kalman.predict();
-		}
-		// track ID by using custom function
-		else {
-			int frame_story = std::max(5, current_fps_cap.load());
-			result_vec = detector.tracking_id(result_vec, true, frame_story, 40); // CORE
-		}
+		result_vec = detector.tracking_id(result_vec, true, std::max(5, current_fps_cap.load()), 40);
 
 		detection_data.result_vec = result_vec;
 		q_draw.push_back(detection_data);
