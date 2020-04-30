@@ -69,14 +69,16 @@ CPP=g++ -std=c++11
 NVCC=nvcc
 OPTS=-Ofast
 LDFLAGS= -lm -pthread
-COMMON= -Iinclude/ -I3rdparty/stb/include -g
+COMMON= -Iinclude/ -I3rdparty/stb/include
 CFLAGS=-Wall -Wfatal-errors -Wno-unused-result -Wno-unknown-pragmas -fPIC -D_BSD_SOURCE
 
 ifeq ($(DEBUG), 1)
 #OPTS= -O0 -g
 #OPTS= -Og -g
-COMMON+= -DDEBUG
+OPTS=-O0
+COMMON+= -DDEBUG -O0 -g
 CFLAGS+= -DDEBUG
+NVFLAGS= -g -G
 else
 ifeq ($(AVX), 1)
 CFLAGS+= -ffp-contract=fast -mavx -mavx2 -msse3 -msse4.1 -msse4.2 -msse4a
@@ -173,7 +175,7 @@ $(OBJDIR)%.o: %.cpp $(DEPS)
 	$(CPP) -std=c++11 $(COMMON) $(CFLAGS) -c $< -o $@
 
 $(OBJDIR)%.o: %.cu $(DEPS)
-	$(NVCC) $(ARCH) $(COMMON) -std=c++11 --compiler-options "$(CFLAGS)" -c $< -o $@
+	$(NVCC) $(ARCH) $(COMMON) $(NVFLAGS) -std=c++11 --compiler-options "$(CFLAGS)" -c $< -o $@
 
 $(OBJDIR):
 	mkdir -p $(OBJDIR)
