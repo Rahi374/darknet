@@ -178,7 +178,7 @@ void Pipeline::display_thread()
 		// calculate fps per-frame
 		auto frame_interval = frame_dequeued - last_frame_dequeued;
 		auto f_millis = std::chrono::duration_cast<std::chrono::milliseconds>(frame_interval);
-		float fps = 1000/f_millis.count();
+		float fps = f_millis.count() ? (1000/f_millis.count()) : FLT_MAX;
 
 		if (show_stream) {
 			cv::Mat draw_frame = detection_data.draw_frame;
