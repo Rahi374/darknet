@@ -80,6 +80,8 @@ extern "C" {
     cudaStream_t get_cuda_memcpy_stream();
     int get_number_of_blocks(int array_size, int block_size);
     int get_gpu_compute_capability(int i);
+    int get_gpu_malloc_limit();
+    void set_gpu_malloc_limit(int val);
     void show_cuda_cudnn_info();
 
 #ifdef CUDNN
