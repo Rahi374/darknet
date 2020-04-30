@@ -336,7 +336,7 @@ void Pipeline::draw_boxes(cv::Mat mat_img, std::vector<bbox_t> result_vec, std::
 			std::string coords_3d;
 			if (!std::isnan(i.z_3d)) {
 				std::stringstream ss;
-				ss << std::fixed << std::setprecision(2) << "x:" << i.x_3d << "m y:" << i.y_3d << "m z:" << i.z_3d << "m ";
+				ss << std::fixed << std::setprecision(2) << "x:" << i.x << " y:" << i.y << " p:" << i.prob;
 				coords_3d = ss.str();
 				cv::Size const text_size_3d = getTextSize(ss.str(), cv::FONT_HERSHEY_COMPLEX_SMALL, 0.8, 1, 0);
 				int const max_width_3d = ((unsigned int)text_size_3d.width > i.w + 2) ? text_size_3d.width : (i.w + 2);
