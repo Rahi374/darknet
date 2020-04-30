@@ -31,11 +31,12 @@ void Pipeline::capture_thread(cv::VideoCapture &cap)
 		detection_data.frame_id = frame_id++;
 
 		if (detection_data.cap_frame.empty() || stop_loop) {
-			std::cout << " exit_flag: detection_data.cap_frame.size = " << detection_data.cap_frame.size() << std::endl;
-			final_frame_id = frame_id-2;
+			std::cout << " exit_flag: detection_data.cap_frame.size = "
+				  << detection_data.cap_frame.size()
+				  << ", frame_id = " << frame_id << std::endl;
+			final_frame_id = frame_id-1;
 			stop_loop = true;
 			detection_data.cap_frame = cv::Mat(frame_size, CV_8UC3);
-			break;
 		}
 
 		q_prepare.push_back(detection_data);
