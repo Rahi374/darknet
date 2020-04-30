@@ -501,6 +501,20 @@ int get_gpu_compute_capability(int i)
     return cc;
 }
 
+int get_gpu_malloc_limit()
+{
+    int ret;
+    cudaError_t status = cudaDeviceGetLimit(&ret, cudaLimitMallocHeapSize);
+    CHECK_CUDA(status);
+    return ret;
+}
+
+void set_gpu_malloc_limit(int val)
+{
+    cudaError_t status = cudaDeviceSetLimit(cudaLimitMallocHeapSize, val);
+    CHECK_CUDA(status);
+}
+
 void show_cuda_cudnn_info()
 {
     int cuda_version = 0, cuda_driver_version = 0, device_count = 0;
