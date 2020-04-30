@@ -373,11 +373,14 @@ LIB_API std::vector<bbox_t> Detector::tracking_id(std::vector<bbox_t> cur_bbox_v
 {
 	detector_gpu_t &det_gpu = *static_cast<detector_gpu_t *>(detector_gpu_ptr.get());
 
+	// check if there are any detections
 	bool prev_track_id_present = false;
 	for (auto &i : prev_bbox_vec_deque)
 		if (i.size() > 0)
 			prev_track_id_present = true;
 
+	// this is really only for the first frame, unless there's another frame with no detections
+	// populate detections if they don't already exist, save the detections to the history
 	if (!prev_track_id_present) {
 		for (size_t i = 0; i < cur_bbox_vec.size(); ++i)
 			cur_bbox_vec[i].track_id = det_gpu.track_id[cur_bbox_vec[i].obj_id]++;
@@ -389,15 +392,23 @@ LIB_API std::vector<bbox_t> Detector::tracking_id(std::vector<bbox_t> cur_bbox_v
 
 	std::vector<unsigned int> dist_vec(cur_bbox_vec.size(), std::numeric_limits<unsigned int>::max());
 
+	// for every set of old detections...
 	for (auto &prev_bbox_vec : prev_bbox_vec_deque) {
+		// for every old detection...
 		for (auto &i : prev_bbox_vec) {
 			int cur_index = -1;
+			// for every detection in the current frame...
 			for (size_t m = 0; m < cur_bbox_vec.size(); ++m) {
 				bbox_t const &k = cur_bbox_vec[m];
+				// if the class of the old detection and the new detection matches...
 				if (i.obj_id == k.obj_id) {
 					float center_x_diff = (float)(i.x + i.w / 2) - (float)(k.x + k.w / 2);
 					float center_y_diff = (float)(i.y + i.h / 2) - (float)(k.y + k.h / 2);
+					// find euclidean distance between center of detections
 					unsigned int cur_dist = sqrt(center_x_diff * center_x_diff + center_y_diff * center_y_diff);
+					// if the dist is below threshold, and either the new point is untracked or the dist of other
+					//   current point is greater than the current,
+					// then save the current distance and new-point index
 					if (cur_dist < max_dist && (k.track_id == 0 || dist_vec[m] > cur_dist)) {
 						dist_vec[m] = cur_dist;
 						cur_index = m;
@@ -408,6 +419,7 @@ LIB_API std::vector<bbox_t> Detector::tracking_id(std::vector<bbox_t> cur_bbox_v
 			bool track_id_absent = !std::any_of(cur_bbox_vec.begin(), cur_bbox_vec.end(),
 							    [&i](bbox_t const &b) { return b.track_id == i.track_id && b.obj_id == i.obj_id; });
 
+			// if the closest object to the old object has no tracking id yet, assign it to us (the old object)
 			if (cur_index >= 0 && track_id_absent) {
 				cur_bbox_vec[cur_index].track_id = i.track_id;
 				cur_bbox_vec[cur_index].w = (cur_bbox_vec[cur_index].w + i.w) / 2;
@@ -416,10 +428,14 @@ LIB_API std::vector<bbox_t> Detector::tracking_id(std::vector<bbox_t> cur_bbox_v
 		}
 	}
 
+	// for every new object that doesn't have a tracking id yet, assign it to a new one
 	for (size_t i = 0; i < cur_bbox_vec.size(); ++i)
 		if (cur_bbox_vec[i].track_id == 0)
 			cur_bbox_vec[i].track_id = det_gpu.track_id[cur_bbox_vec[i].obj_id]++;
 
+	// true; this will always run
+	// save the detections for this frame in the old detections queue
+	// this is also not worth the gpu
 	if (change_history) {
 		prev_bbox_vec_deque.push_front(cur_bbox_vec);
 		if (prev_bbox_vec_deque.size() > frames_story)
