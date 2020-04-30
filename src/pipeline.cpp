@@ -215,7 +215,7 @@ void Pipeline::monitoring_thread()
 }
 
 Pipeline::Pipeline(int thread_id, std::string cfg_file, std::string weights_file, std::string names_file, std::string video_filename, bool show_stream, bool save_output_videofile, float thresh, bool output_to_console)
-	: thread_id(thread_id), stop_loop(false), display_done(false), use_kalman_filter(false), final_frame_id(UINT_MAX), fps_cap_counter(0), fps_det_counter(0), current_fps_cap(0), current_fps_det(0), detector(cfg_file, weights_file), show_stream(show_stream), thresh(thresh), is_running(true), show_console(output_to_console)
+	: thread_id(thread_id), stop_loop(false), display_done(false), final_frame_id(UINT_MAX), fps_cap_counter(0), fps_det_counter(0), current_fps_cap(0), current_fps_det(0), detector(cfg_file, weights_file), show_stream(show_stream), thresh(thresh), is_running(true), show_console(output_to_console)
 {
 	std::cout << "CONSTRUCTING PIPELINE" << std::endl;
 	obj_names = objects_names_from_file(names_file);
