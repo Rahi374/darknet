@@ -131,10 +131,9 @@ void Pipeline::draw_thread(std::vector<std::string> &obj_names)
 		q_draw.pop_front();
 		std::vector<bbox_t> result_vec = detection_data.result_vec;
 
-		// OP
 		cv::Mat draw_frame = detection_data.draw_frame.clone();
 
-		draw_boxes(draw_frame, detection_data.result_vec, obj_names, current_fps_det, current_fps_cap, detection_data.frame_id); // CORE
+		draw_boxes(draw_frame, detection_data.result_vec, obj_names, current_fps_det, current_fps_cap, detection_data.frame_id);
 		if (show_console)
 			show_console_result(detection_data.result_vec, obj_names, detection_data.frame_id);
 
