@@ -936,6 +936,7 @@ LIB_API void diounms_sort(detection *dets, int total, int classes, float thresh,
 
 // network.h
 LIB_API float *network_predict(network net, float *input);
+LIB_API void network_predict_prealloc(network net, cudaEvent_t *cuda_event, void *d_input);
 LIB_API float *network_predict_ptr(network *net, float *input);
 LIB_API detection *get_network_boxes(network *net, int w, int h, float thresh, float hier, int *map, int relative, int *num, int letter);
 LIB_API void free_detections(detection *dets, int n);

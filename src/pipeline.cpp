@@ -59,12 +59,12 @@ void Pipeline::prepare_thread(Detector &detector)
 		auto time_now = std::chrono::steady_clock::now();
 		detection_data.time_points.push_back(time_now);
 
-		det_image = detector.mat_to_image_resize(detection_data.cap_frame);
-		detection_data.det_image = det_image;
+		detector.mat_to_image_resize(detection_data);
 
 		time_now = std::chrono::steady_clock::now();
 		detection_data.time_points.push_back(time_now);
 		q_detect.push_back(detection_data);
+
 	} while (!stop_loop || detection_data.frame_id < final_frame_id);
 	std::cout << " t_prepare exit\n";
 }
@@ -80,19 +80,13 @@ void Pipeline::detect_thread(Detector &detector)
 		auto time_now = std::chrono::steady_clock::now();
 		detection_data.time_points.push_back(time_now);
 
-		det_image = detection_data.det_image;
-		std::vector<bbox_t> result_vec;
-
-		if (det_image)
-			result_vec = detector.detect_resized(*det_image, frame_size.width, frame_size.height, thresh, true);
+		detector.detect_resized(detection_data, thresh);
 		fps_det_counter++;
-
-		detection_data.new_detection = true;
-		detection_data.result_vec = result_vec;
 
 		time_now = std::chrono::steady_clock::now();
 		detection_data.time_points.push_back(time_now);
 		q_track.push_back(detection_data);
+
 	} while (!stop_loop || detection_data.frame_id < final_frame_id);
 	std::cout << " t_detect exit\n";
 }

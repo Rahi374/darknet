@@ -2,6 +2,7 @@
 #include "yolo_v2_class.hpp"
 
 #include "network.h"
+#include "pipeline.hpp"
 
 extern "C" {
 #include "detection_layer.h"
@@ -279,6 +280,64 @@ LIB_API void Detector::free_image(image_t m)
 	if (m.data) {
 		free(m.data);
 	}
+}
+
+LIB_API std::vector<bbox_t> Detector::detect(detection_data_t &detection_data, float thresh)
+{
+	detector_gpu_t &detector_gpu = *static_cast<detector_gpu_t *>(detector_gpu_ptr.get());
+	network &net = detector_gpu.net;
+	cv::Mat mat = detection_data.cap_frame;
+
+	int old_gpu_index;
+	cudaGetDevice(&old_gpu_index);
+	if (cur_gpu_id != old_gpu_index)
+		cudaSetDevice(net.gpu_index);
+
+	net.wait_stream = 0;
+
+	layer l = net.layers[net.n - 1];
+
+	network_predict_prealloc(net, &(detection_data.cuda_event), detection_data.cuda_ptrs.at(0));
+	detection_data.cuda_ptrs.pop_back();
+
+	int nboxes = 0;
+	int letterbox = 0;
+	float hier_thresh = 0.5;
+	detection *dets = get_network_boxes(&net, mat.cols, mat.rows, thresh, hier_thresh, 0, 1, &nboxes, letterbox);
+	if (nms)
+		do_nms_sort(dets, nboxes, l.classes, nms);
+
+	std::vector<bbox_t> bbox_vec;
+
+	for (int i = 0; i < nboxes; ++i) {
+		box b = dets[i].bbox;
+		int const obj_id = max_index(dets[i].prob, l.classes);
+		float const prob = dets[i].prob[obj_id];
+
+		if (prob > thresh) {
+			bbox_t bbox;
+			bbox.x = std::max((double)0, (b.x - b.w / 2.) * mat.cols);
+			bbox.y = std::max((double)0, (b.y - b.h / 2.) * mat.rows);
+			bbox.w = b.w * mat.cols;
+			bbox.h = b.h * mat.rows;
+			bbox.obj_id = obj_id;
+			bbox.prob = prob;
+			bbox.track_id = 0;
+			bbox.frames_counter = 0;
+			bbox.x_3d = NAN;
+			bbox.y_3d = NAN;
+			bbox.z_3d = NAN;
+
+			bbox_vec.push_back(bbox);
+		}
+	}
+
+	free_detections(dets, nboxes);
+
+	if (cur_gpu_id != old_gpu_index)
+		cudaSetDevice(old_gpu_index);
+
+	return bbox_vec;
 }
 
 LIB_API std::vector<bbox_t> Detector::detect(image_t img, float thresh, bool use_mean)

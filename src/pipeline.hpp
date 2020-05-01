@@ -1,3 +1,6 @@
+#ifndef PIPELINE_HPP
+#define PIPELINE_HPP
+
 #include <iostream>
 #include <iomanip>
 #include <string>
@@ -13,22 +16,9 @@
 #include <condition_variable>
 #include <fstream>
 
+#include "dark_cuda.h"
 #include "shared_queue.hpp"
 #include "yolo_v2_class.hpp"
-
-struct detection_data_t {
-	detection_data_t()
-		: new_detection(false) {}
-
-	cv::Mat cap_frame;
-	std::shared_ptr<image_t> det_image;
-	std::vector<bbox_t> result_vec;
-	cv::Mat draw_frame;
-	bool new_detection;
-	uint64_t frame_id;
-	std::chrono::steady_clock::time_point time_captured;
-	std::deque<std::chrono::steady_clock::time_point> time_points;
-};
 
 class Pipeline {
 
@@ -83,3 +73,5 @@ private:
 	void display_thread();
 	void monitoring_thread();
 };
+
+#endif // PIPELINE_HPP

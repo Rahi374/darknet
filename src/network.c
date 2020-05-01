@@ -708,6 +708,11 @@ float *network_predict_ptr(network *net, float *input)
     return network_predict(*net, input);
 }
 
+void network_predict_prealloc(network net, cudaEvent_t *cuda_event, void *d_input)
+{
+    network_predict_gpu_prealloc(net, cuda_event, (float *)d_input);
+}
+
 float *network_predict(network net, float *input)
 {
 #ifdef GPU
