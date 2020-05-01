@@ -50,6 +50,8 @@ struct bbox_t_container {
 #include <iostream>
 #include <cmath>
 
+#include "../src/dark_cuda.h"
+
 #ifdef OPENCV
 #include <opencv2/opencv.hpp> // C++
 #include <opencv2/highgui/highgui_c.h> // C
@@ -67,12 +69,26 @@ extern "C" LIB_API bool built_with_cudnn();
 extern "C" LIB_API bool built_with_opencv();
 extern "C" LIB_API void send_json_custom(char const *send_buf, int port, int timeout);
 
-extern int cuda_mat_to_image_resize(image_t *dst, int dst_w, int dst_h,
+extern int cuda_mat_to_image_resize(cudaEvent_t *out_event, void **out_ptr, int dst_w, int dst_h,
 				    unsigned char *src, int src_w, int src_h, int src_step);
 extern int cuda_do_tracking(/* rw */ bbox_t *cur_bbox_vec, int cur_bbox_len,
 			    /* ro */ bool const change_history, int const frames_story, int const max_dist,
 			    /* ro */ bbox_t **prev_bbox_vec, int *prev_bbox_vec_offsets, int *prev_bbox_vec_sizes,
 			    /* ro */ int prev_bbox_count, int prev_bbox_max_len, int prev_bbox_total_len);
+
+struct detection_data_t {
+	detection_data_t() {}
+
+	cv::Mat cap_frame;
+	std::shared_ptr<image_t> det_image;
+	std::vector<bbox_t> result_vec;
+	cv::Mat draw_frame;
+	uint64_t frame_id;
+	std::chrono::steady_clock::time_point time_captured;
+
+	cudaEvent_t cuda_event;
+	std::vector<void *> cuda_ptrs;
+};
 
 class Detector
 {
@@ -90,6 +106,7 @@ public:
 
 	LIB_API std::vector<bbox_t> detect(std::string image_filename, float thresh = 0.2, bool use_mean = false);
 	LIB_API std::vector<bbox_t> detect(image_t img, float thresh = 0.2, bool use_mean = false);
+	LIB_API std::vector<bbox_t> detect(detection_data_t &detection, float thresh = 0.2);
 	static LIB_API image_t load_image(std::string image_filename);
 	static LIB_API void free_image(image_t m);
 	LIB_API int get_net_width() const;
@@ -103,6 +120,15 @@ public:
 
 	//LIB_API bool send_json_http(std::vector<bbox_t> cur_bbox_vec, std::vector<std::string> obj_names, int frame_id,
 	//    std::string filename = std::string(), int timeout = 400000, int port = 8070);
+
+#ifdef OPENCV
+	void detect_resized(detection_data_t &detection_data, float thresh = 0.2)
+	{
+		std::vector<bbox_t> detection_boxes = detect(detection_data, thresh);
+
+		detection_data.result_vec = detection_boxes;
+	}
+#endif
 
 	std::vector<bbox_t> detect_resized(image_t img, int init_w, int init_h, float thresh = 0.2, bool use_mean = false)
 	{
@@ -124,23 +150,27 @@ public:
 		return detect_resized(*image_ptr, mat.cols, mat.rows, thresh, use_mean);
 	}
 
+	void mat_to_image_resize(detection_data_t &detection_data) const
+	{
+		cv::Mat mat = detection_data.cap_frame;
+		if (mat.data == NULL)
+			return;
+
+		if (mat.channels() != 3) {
+			std::cerr << "We only support 3 channels. Frame has " << mat.channels() << " channels.";
+			return;
+		}
+
+		void *preproc_out;
+		cuda_mat_to_image_resize(&(detection_data.cuda_event), &preproc_out, get_net_width(), get_net_height(),
+					 (unsigned char *)mat.data, mat.cols, mat.rows, mat.step);
+		detection_data.cuda_ptrs.push_back(preproc_out);
+	}
+
 	std::shared_ptr<image_t> mat_to_image_resize(cv::Mat mat) const
 	{
 		if (mat.data == NULL)
 			return std::shared_ptr<image_t>(NULL);
-
-#ifdef GPU
-		if (mat.channels() != 3) {
-			std::cerr << "We only support 3 channels. Frame has " << mat.channels() << " channels.";
-			return std::shared_ptr<image_t>(NULL);
-		}
-
-		std::shared_ptr<image_t> image_ptr(new image_t, [](image_t *img) { free_image(*img); delete img; });
-		*image_ptr = make_image_custom(get_net_width(), get_net_height(), 3);
-		cuda_mat_to_image_resize(image_ptr.get(), get_net_width(), get_net_height(),
-					 (unsigned char *)mat.data, mat.cols, mat.rows, mat.step);
-		return image_ptr;
-#else
 
 		cv::Size network_size = cv::Size(get_net_width(), get_net_height());
 		cv::Mat det_mat;
@@ -150,7 +180,6 @@ public:
 			det_mat = mat; // only reference is copied
 
 		return mat_to_image(det_mat);
-#endif
 	}
 
 	static std::shared_ptr<image_t> mat_to_image(cv::Mat img_src)

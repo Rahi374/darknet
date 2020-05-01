@@ -1,4 +1,5 @@
 #include "dark_cuda.h"
+#include "pipeline.hpp"
 #include "yolo_v2_class.hpp"
 
 #include <stdio.h>
@@ -103,17 +104,19 @@ __global__ void do_tracking_gpu(/* rw */ bbox_t *cur_bbox_vec, int cur_bbox_len,
 }
 
 
-int cuda_mat_to_image_resize(image_t *dst, int dst_w, int dst_h,
+int cuda_mat_to_image_resize(cudaEvent_t *out_event, void **out_ptr, int dst_w, int dst_h,
 			     unsigned char *src, int src_w, int src_h, int src_step)
 {
 	unsigned char *d_src;
 	float *d_dst;
+	CHECK_CUDA(cudaEventCreate(out_event));
 
 	unsigned int src_size = src_h * src_step * sizeof(unsigned char);
 	unsigned int dst_size = 3 * dst_w * dst_h * sizeof(float);
 
 	CHECK_CUDA(cudaMalloc((unsigned char**)&d_src, src_size));
 	CHECK_CUDA(cudaMalloc((float**)&d_dst, dst_size));
+	*out_ptr = (void *)d_dst;
 
 	dim3 dimGrid(ceil(dst_w/(float)32), ceil(dst_h/(float)32));
 	dim3 dimBlock(32, 32);
@@ -121,12 +124,9 @@ int cuda_mat_to_image_resize(image_t *dst, int dst_w, int dst_h,
 	CHECK_CUDA(cudaMemcpyAsync(d_src, src, src_size, cudaMemcpyHostToDevice, get_cuda_stream()));
 	mat_to_image_resize_gpu<<<dimGrid, dimBlock, 0, get_cuda_stream()>>>(d_dst, dst_w, dst_h, d_src, src_w, src_h, src_step);
 	CHECK_CUDA(cudaGetLastError());
-
-	CHECK_CUDA(cudaMemcpyAsync(dst->data, d_dst, dst_size, cudaMemcpyDeviceToHost, get_cuda_stream()));
-	cudaStreamSynchronize(get_cuda_stream());
+	CHECK_CUDA(cudaEventRecord(*out_event, get_cuda_stream()));
 
 	CHECK_CUDA(cudaFree(d_src));
-	CHECK_CUDA(cudaFree(d_dst));
 
 	return 0;
 }

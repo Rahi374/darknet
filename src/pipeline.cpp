@@ -55,9 +55,10 @@ void Pipeline::prepare_thread(Detector &detector)
 		detection_data = q_prepare.front();
 		q_prepare.pop_front();
 
-		det_image = detector.mat_to_image_resize(detection_data.cap_frame);
-		detection_data.det_image = det_image;
+		detector.mat_to_image_resize(detection_data);
+
 		q_detect.push_back(detection_data);
+
 	} while (!stop_loop || detection_data.frame_id < final_frame_id);
 	std::cout << " t_prepare exit\n";
 }
@@ -71,16 +72,11 @@ void Pipeline::detect_thread(Detector &detector)
 		detection_data = q_detect.front();
 		q_detect.pop_front();
 
-		det_image = detection_data.det_image;
-		std::vector<bbox_t> result_vec;
-
-		if (det_image)
-			result_vec = detector.detect_resized(*det_image, frame_size.width, frame_size.height, thresh, true);
+		detector.detect_resized(detection_data, thresh);
 		fps_det_counter++;
 
-		detection_data.new_detection = true;
-		detection_data.result_vec = result_vec;
 		q_track.push_back(detection_data);
+
 	} while (!stop_loop || detection_data.frame_id < final_frame_id);
 	std::cout << " t_detect exit\n";
 }

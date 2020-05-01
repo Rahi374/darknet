@@ -59,94 +59,20 @@ int time_comparator(const void *pa, const void *pb)
 
 void forward_network_gpu(network net, network_state state)
 {
-    static time_benchmark_layers *avg_time_per_layer = NULL;
-    static time_benchmark_layers *sorted_avg_time_per_layer = NULL;
-    double start_time, end_time;
-    if (net.benchmark_layers) {
-        if (!avg_time_per_layer) {
-            avg_time_per_layer = (time_benchmark_layers *)calloc(net.n, sizeof(time_benchmark_layers));
-            sorted_avg_time_per_layer = (time_benchmark_layers *)calloc(net.n, sizeof(time_benchmark_layers));
-        }
-        cudaDeviceSynchronize();
-    }
-
-    //printf("\n");
     state.workspace = net.workspace;
     int i;
     for(i = 0; i < net.n; ++i){
         state.index = i;
         layer l = net.layers[i];
-        if(l.delta_gpu && state.train){
+        if(l.delta_gpu && state.train)
             fill_ongpu(l.outputs * l.batch, 0, l.delta_gpu, 1);
-        }
-
-        if (net.benchmark_layers) {
-            start_time = get_time_point();
-        }
 
         l.forward_gpu(l, state);
-
-        if (net.benchmark_layers) {
-            CHECK_CUDA(cudaDeviceSynchronize());
-            end_time = get_time_point();
-            const double took_time = (end_time - start_time) / 1000;
-            const double alpha = 0.9;
-            if (avg_time_per_layer[i].time == 0) {
-                avg_time_per_layer[i].layer_id = i;
-                avg_time_per_layer[i].layer_type = l.type;
-                avg_time_per_layer[i].time = took_time;
-            }
-            else avg_time_per_layer[i].time = avg_time_per_layer[i].time * alpha + took_time * (1 - alpha);
-
-            sorted_avg_time_per_layer[i] = avg_time_per_layer[i];
-            printf("\n fw-layer %d - type: %d - %lf ms - avg_time %lf ms \n", i, l.type, took_time, avg_time_per_layer[i].time);
-        }
 
         if(net.wait_stream)
             cudaStreamSynchronize(get_cuda_stream());
         state.input = l.output_gpu;
-        //cudaDeviceSynchronize();
-
-        /*
-        cuda_pull_array(l.output_gpu, l.output, l.outputs);
-        cudaStreamSynchronize(get_cuda_stream());
-        float avg_val = 0;
-        int k;
-        for (k = 0; k < l.outputs; ++k) avg_val += l.output[k];
-        printf(" i: %d - avg_val = %f \n", i, avg_val / l.outputs);
-        */
-
-/*
-        cuda_pull_array(l.output_gpu, l.output, l.batch*l.outputs);
-        if (l.out_w >= 0 && l.out_h >= 1 && l.c >= 3) {
-            int j;
-            for (j = 0; j < l.out_c; ++j) {
-                image img = make_image(l.out_w, l.out_h, 3);
-                memcpy(img.data, l.output + l.out_w*l.out_h*j, l.out_w*l.out_h * 1 * sizeof(float));
-                memcpy(img.data + l.out_w*l.out_h * 1, l.output + l.out_w*l.out_h*j, l.out_w*l.out_h * 1 * sizeof(float));
-                memcpy(img.data + l.out_w*l.out_h * 2, l.output + l.out_w*l.out_h*j, l.out_w*l.out_h * 1 * sizeof(float));
-                char buff[256];
-                sprintf(buff, "layer-%d slice-%d", i, j);
-                show_image(img, buff);
-                save_image(img, buff);
-            }
-            cvWaitKey(0); // wait press-key in console
-            cvDestroyAllWindows();
-        }
-*/
     }
-
-    if (net.benchmark_layers) {
-        printf("\n\nSorted by time (forward):\n");
-        qsort(sorted_avg_time_per_layer, net.n, sizeof(time_benchmark_layers), time_comparator);
-        for (i = 0; i < net.n; ++i) {
-            //printf("layer %d - type: %d - avg_time %lf ms \n", avg_time_per_layer[i].layer_id, avg_time_per_layer[i].layer_type, avg_time_per_layer[i].time);
-            printf("%d - fw-sort-layer %d - type: %d - avg_time %lf ms \n", i, sorted_avg_time_per_layer[i].layer_id, sorted_avg_time_per_layer[i].layer_type, sorted_avg_time_per_layer[i].time);
-        }
-    }
-
-    //cudaStreamSynchronize(get_cuda_stream());   // sync CUDA-functions
-    //cudaDeviceSynchronize();
 }
 
 void backward_network_gpu(network net, network_state state)
@@ -672,4 +598,23 @@ float *network_predict_gpu(network net, float *input)
     float *out = get_network_output_gpu(net);
     //cuda_free(state.input);   // will be freed in the free_network()
     return out;
+}
+
+void network_predict_gpu_prealloc(network net, cudaEvent_t *cuda_event, float *d_input)
+{
+    if (net.gpu_index != cuda_get_device())
+        cuda_set_device(net.gpu_index);
+
+    CHECK_CUDA(cudaStreamWaitEvent(get_cuda_stream(), *cuda_event, 0));
+    CHECK_CUDA(cudaEventDestroy(*cuda_event));
+
+    network_state state;
+    state.index = 0;
+    state.net = net;
+    state.input = d_input;
+    state.truth = 0;
+    state.train = 0;
+    state.delta = 0;
+
+    forward_network_gpu(net, state);
 }
