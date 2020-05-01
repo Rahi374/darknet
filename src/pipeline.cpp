@@ -173,7 +173,7 @@ void Pipeline::display_thread()
 		// calculate time taken to get through pipeline
 		auto time_frame_in_pipeline = frame_dequeued - detection_data.time_captured;
 		auto i_millis = std::chrono::duration_cast<std::chrono::milliseconds>(time_frame_in_pipeline);
-		float time_frame_in_pipeline_ms = i_millis.count() / 1000;
+		float time_frame_in_pipeline_ms = i_millis.count();
 
 		// calculate fps per-frame
 		auto frame_interval = frame_dequeued - last_frame_dequeued;
@@ -186,8 +186,10 @@ void Pipeline::display_thread()
 			cv::waitKey(1);
 		}
 
-		std::cout << " current_fps_det = " << current_fps_det << ", current_fps_cap = " << current_fps_cap << std::endl;
-		std::cout << "fps = " << fps << "\tframe interval (ms) = " << f_millis.count() << "\ttime frame in pipeline (ms) = " << time_frame_in_pipeline_ms << std::endl;
+		std::cout << " thread_id " << thread_id << " frame " << detection_data.frame_id
+			  << " latency (ms) = " << time_frame_in_pipeline_ms
+			  << " current_fps_det = " << current_fps_det
+			  << " current_fps_cap = " << current_fps_cap << std::endl;
 		last_frame_dequeued = frame_dequeued;
 	} while (!stop_loop || detection_data.frame_id < final_frame_id);
 	is_running = false;
