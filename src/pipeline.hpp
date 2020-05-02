@@ -27,6 +27,7 @@ struct detection_data_t {
 	bool new_detection;
 	uint64_t frame_id;
 	std::chrono::steady_clock::time_point time_captured;
+	std::deque<std::chrono::steady_clock::time_point> time_points;
 };
 
 class Pipeline {

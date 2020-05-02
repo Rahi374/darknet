@@ -67,6 +67,18 @@ extern "C" LIB_API bool built_with_cudnn();
 extern "C" LIB_API bool built_with_opencv();
 extern "C" LIB_API void send_json_custom(char const *send_buf, int port, int timeout);
 
+const std::string detection_time_diff_names[9] = {
+	"capture",
+	"capture-preproc",
+	"preproc",
+	"preproc-detect",
+	"detect",
+	"detect-track",
+	"track",
+	"track-draw",
+	"draw",
+};
+
 class Detector
 {
 	std::shared_ptr<void> detector_gpu_ptr;

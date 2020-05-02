@@ -1,6 +1,7 @@
 #include <iostream>
 #include <iomanip>
 #include <string>
+#include <sstream>
 #include <vector>
 #include <queue>
 #include <fstream>
@@ -11,7 +12,6 @@
 #include <cmath>
 #include <csignal>
 #include <condition_variable>
-#include <fstream>
 
 #include "shared_queue.hpp"
 #include "yolo_v2_class.hpp"
@@ -39,6 +39,8 @@ void Pipeline::capture_thread(cv::VideoCapture &cap)
 			detection_data.cap_frame = cv::Mat(frame_size, CV_8UC3);
 		}
 
+		auto time_now = std::chrono::steady_clock::now();
+		detection_data.time_points.push_back(time_now);
 		q_prepare.push_back(detection_data);
 
 	} while (!stop_loop);
@@ -54,9 +56,14 @@ void Pipeline::prepare_thread(Detector &detector)
 	do {
 		detection_data = q_prepare.front();
 		q_prepare.pop_front();
+		auto time_now = std::chrono::steady_clock::now();
+		detection_data.time_points.push_back(time_now);
 
 		det_image = detector.mat_to_image_resize(detection_data.cap_frame);
 		detection_data.det_image = det_image;
+
+		time_now = std::chrono::steady_clock::now();
+		detection_data.time_points.push_back(time_now);
 		q_detect.push_back(detection_data);
 	} while (!stop_loop || detection_data.frame_id < final_frame_id);
 	std::cout << " t_prepare exit\n";
@@ -70,6 +77,8 @@ void Pipeline::detect_thread(Detector &detector)
 	do {
 		detection_data = q_detect.front();
 		q_detect.pop_front();
+		auto time_now = std::chrono::steady_clock::now();
+		detection_data.time_points.push_back(time_now);
 
 		det_image = detection_data.det_image;
 		std::vector<bbox_t> result_vec;
@@ -80,6 +89,9 @@ void Pipeline::detect_thread(Detector &detector)
 
 		detection_data.new_detection = true;
 		detection_data.result_vec = result_vec;
+
+		time_now = std::chrono::steady_clock::now();
+		detection_data.time_points.push_back(time_now);
 		q_track.push_back(detection_data);
 	} while (!stop_loop || detection_data.frame_id < final_frame_id);
 	std::cout << " t_detect exit\n";
@@ -91,16 +103,20 @@ void Pipeline::track_thread(Detector &detector)
 	detection_data_t detection_data;
 	do {
 		detection_data = q_track.front();
-
 		q_track.pop_front();
-		std::vector<bbox_t> result_vec = detection_data.result_vec;
+		auto time_now = std::chrono::steady_clock::now();
+		detection_data.time_points.push_back(time_now);
 
+		std::vector<bbox_t> result_vec = detection_data.result_vec;
 		detection_data.draw_frame = detection_data.cap_frame.clone();
 
 		result_vec = detector.tracking_id(result_vec, true, std::max(5, current_fps_cap.load()), 40);
-
 		detection_data.result_vec = result_vec;
+
+		time_now = std::chrono::steady_clock::now();
+		detection_data.time_points.push_back(time_now);
 		q_draw.push_back(detection_data);
+
 	} while (!stop_loop || detection_data.frame_id < final_frame_id);
 	std::cout << " t_track exit\n";
 }
@@ -112,6 +128,9 @@ void Pipeline::draw_thread(std::vector<std::string> &obj_names)
 	do {
 		detection_data = q_draw.front();
 		q_draw.pop_front();
+		auto time_now = std::chrono::steady_clock::now();
+		detection_data.time_points.push_back(time_now);
+
 		std::vector<bbox_t> result_vec = detection_data.result_vec;
 
 		cv::Mat draw_frame = detection_data.draw_frame.clone();
@@ -122,6 +141,9 @@ void Pipeline::draw_thread(std::vector<std::string> &obj_names)
 
 		detection_data.draw_frame = draw_frame;
 		detection_data.result_vec = result_vec;
+
+		time_now = std::chrono::steady_clock::now();
+		detection_data.time_points.push_back(time_now);
 		q_show.push_back(detection_data);
 
 		if (output_video.isOpened())
@@ -190,6 +212,20 @@ void Pipeline::display_thread()
 			  << " latency (ms) = " << time_frame_in_pipeline_ms
 			  << " current_fps_det = " << current_fps_det
 			  << " current_fps_cap = " << current_fps_cap << std::endl;
+
+		std::stringstream out_str;
+		out_str << " thread_id " << thread_id << " frame " << detection_data.frame_id << " ";
+
+		i_millis = std::chrono::duration_cast<std::chrono::milliseconds>(
+				detection_data.time_points[0] - detection_data.time_captured);
+		out_str << detection_time_diff_names[0] << " " << i_millis.count() << " ";
+		for (int i = 1; i < detection_data.time_points.size(); i++) {
+			i_millis = std::chrono::duration_cast<std::chrono::milliseconds>(
+					detection_data.time_points[i] - detection_data.time_points[i-1]);
+			out_str << detection_time_diff_names[i] << " " << i_millis.count() << " ";
+		}
+		std::cout << out_str.rdbuf() << std::endl;
+
 		last_frame_dequeued = frame_dequeued;
 	} while (!stop_loop || detection_data.frame_id < final_frame_id);
 	is_running = false;
