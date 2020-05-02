@@ -76,6 +76,18 @@ extern int cuda_do_tracking(/* rw */ bbox_t *cur_bbox_vec, int cur_bbox_len,
 			    /* ro */ bbox_t **prev_bbox_vec, int *prev_bbox_vec_offsets, int *prev_bbox_vec_sizes,
 			    /* ro */ int prev_bbox_count, int prev_bbox_max_len, int prev_bbox_total_len);
 
+const std::string detection_time_diff_names[9] = {
+	"capture",
+	"capture-preproc",
+	"preproc",
+	"preproc-detect",
+	"detect",
+	"detect-track",
+	"track",
+	"track-draw",
+	"draw",
+};
+
 struct detection_data_t {
 	detection_data_t() {}
 
@@ -85,6 +97,7 @@ struct detection_data_t {
 	cv::Mat draw_frame;
 	uint64_t frame_id;
 	std::chrono::steady_clock::time_point time_captured;
+	std::deque<std::chrono::steady_clock::time_point> time_points;
 
 	cudaEvent_t cuda_event;
 	std::vector<void *> cuda_ptrs;
